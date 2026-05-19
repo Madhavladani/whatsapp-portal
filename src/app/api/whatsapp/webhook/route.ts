@@ -24,6 +24,7 @@ interface WhatsAppMessage {
   from: string
   timestamp: string
   type: string
+  context?: { id: string }
   text?: { body: string }
   image?: { id: string; mime_type: string; caption?: string }
   video?: { id: string; mime_type: string; caption?: string }
@@ -351,6 +352,40 @@ async function flagBroadcastReplyIfAny(userId: string, contactId: string) {
   }
 }
 
+async function flagBroadcastReplyByContext(args: {
+  userId: string
+  contactId: string
+  contextMessageId: string
+}): Promise<boolean> {
+  try {
+    const { data: rec, error } = await supabaseAdmin()
+      .from('broadcast_recipients')
+      .select('id, status, broadcast_id, broadcasts!inner(user_id)')
+      .eq('contact_id', args.contactId)
+      .eq('broadcasts.user_id', args.userId)
+      .eq('whatsapp_message_id', args.contextMessageId)
+      .maybeSingle()
+
+    if (error || !rec) return false
+
+    if (!['sent', 'delivered', 'read'].includes(rec.status)) return true
+
+    const { error: updErr } = await supabaseAdmin()
+      .from('broadcast_recipients')
+      .update({ status: 'replied', replied_at: new Date().toISOString() })
+      .eq('id', rec.id)
+
+    if (updErr) {
+      console.error('Error marking broadcast recipient replied:', updErr)
+    }
+
+    return true
+  } catch (err) {
+    console.error('flagBroadcastReplyByContext failed:', err)
+    return false
+  }
+}
+
 async function processMessage(
   message: WhatsAppMessage,
   contact: { profile: { name: string }; wa_id: string },
@@ -422,6 +457,7 @@ async function processMessage(
     content_text: contentText,
     media_url: mediaUrl,
     message_id: message.id,
+    context_message_id: message.context?.id ?? null,
     status: 'delivered',
     created_at: new Date(parseInt(message.timestamp) * 1000).toISOString(),
   })
@@ -449,7 +485,19 @@ async function processMessage(
   // If this contact was a recent broadcast recipient, flag the reply
   // so the broadcast's `replied_count` advances (via the aggregate
   // trigger installed in migration 003).
-  await flagBroadcastReplyIfAny(userId, contactRecord.id)
+  const ctxId = message.context?.id
+  if (ctxId) {
+    const matched = await flagBroadcastReplyByContext({
+      userId,
+      contactId: contactRecord.id,
+      contextMessageId: ctxId,
+    })
+    if (!matched) {
+      await flagBroadcastReplyIfAny(userId, contactRecord.id)
+    }
+  } else {
+    await flagBroadcastReplyIfAny(userId, contactRecord.id)
+  }
 
   // Fire any automations that react to this webhook event. All dispatches
   // run here (not earlier) so the contact, conversation, and inbound
