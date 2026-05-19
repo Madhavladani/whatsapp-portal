@@ -45,6 +45,9 @@ export async function POST(request: Request) {
       media_url,
       template_name,
       template_params,
+      header_media_url,
+      header_media_type,
+      header_media_filename,
     } = body
 
     if (!conversation_id || !message_type) {
@@ -152,6 +155,14 @@ export async function POST(request: Request) {
           to: phone,
           templateName: template_name,
           params: template_params || [],
+          headerMedia:
+            header_media_url && header_media_type
+              ? {
+                  type: header_media_type,
+                  link: header_media_url,
+                  filename: header_media_filename,
+                }
+              : undefined,
         })
         return result.messageId
       }
@@ -221,7 +232,7 @@ export async function POST(request: Request) {
         sender_type: 'agent',
         content_type: message_type,
         content_text: content_text || null,
-        media_url: media_url || null,
+        media_url: header_media_url || media_url || null,
         template_name: template_name || null,
         message_id: waMessageId,
         status: 'sent',

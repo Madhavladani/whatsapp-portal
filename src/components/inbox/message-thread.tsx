@@ -10,6 +10,7 @@ import type {
   Contact,
   ConversationStatus,
   MessageTemplate,
+  TemplateHeaderMedia,
   Profile,
 } from "@/types";
 import {
@@ -313,7 +314,7 @@ export function MessageThread({
   }, []);
 
   const handleSendTemplate = useCallback(
-    async (template: MessageTemplate, params: string[]) => {
+    async (template: MessageTemplate, params: string[], headerMedia?: TemplateHeaderMedia | null) => {
       if (!conversation) return;
 
       const renderedBody = renderTemplateBody(template.body_text, params);
@@ -325,6 +326,7 @@ export function MessageThread({
         sender_type: "agent",
         content_type: "template",
         content_text: renderedBody,
+        media_url: headerMedia?.url ?? undefined,
         template_name: template.name,
         status: "sending",
         created_at: new Date().toISOString(),
@@ -341,6 +343,9 @@ export function MessageThread({
             template_name: template.name,
             template_params: params,
             content_text: renderedBody,
+            header_media_url: headerMedia?.url ?? null,
+            header_media_type: headerMedia?.type ?? null,
+            header_media_filename: headerMedia?.filename ?? null,
           }),
         });
 

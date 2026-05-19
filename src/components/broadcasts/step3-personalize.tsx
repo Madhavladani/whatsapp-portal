@@ -1,8 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
-import { Contact, CustomField, MessageTemplate } from '@/types';
+import {
+  Contact,
+  CustomField,
+  MessageTemplate,
+  TemplateHeaderMedia,
+  TemplateHeaderMediaType,
+} from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -25,6 +32,8 @@ interface Step3Props {
   template: MessageTemplate;
   variables: Record<string, VariableMapping>;
   onUpdate: (variables: Record<string, VariableMapping>) => void;
+  headerMedia: TemplateHeaderMedia | null;
+  onHeaderMediaChange: (media: TemplateHeaderMedia | null) => void;
   onNext: () => void;
   onBack: () => void;
 }
@@ -51,6 +60,8 @@ export function Step3Personalize({
   template,
   variables,
   onUpdate,
+  headerMedia,
+  onHeaderMediaChange,
   onNext,
   onBack,
 }: Step3Props) {
@@ -61,6 +72,47 @@ export function Step3Personalize({
     Map<string, string>
   >(new Map());
   const [loadingPreview, setLoadingPreview] = useState(true);
+  const [uploadingHeader, setUploadingHeader] = useState(false);
+  const headerFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const headerType = template.header_type as TemplateHeaderMediaType | undefined;
+  const needsHeaderMedia =
+    headerType === 'image' || headerType === 'video' || headerType === 'document';
+
+  function safeFilename(name: string) {
+    const normalized = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
+    return normalized.length > 0 ? normalized : `file-${Date.now()}`;
+  }
+
+  async function handleHeaderFile(file: File) {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not signed in');
+
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'bin';
+    const path = `${user.id}/broadcast/${Date.now()}-${safeFilename(file.name)}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('template_media')
+      .upload(path, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type,
+      });
+    if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from('template_media').getPublicUrl(path);
+
+    onHeaderMediaChange({
+      type: headerType ?? 'document',
+      url: publicUrl,
+      filename: file.name,
+    });
+  }
 
   // Load user's custom fields + a representative contact for the
   // live preview. Fall back to sample data if no contacts exist yet.
@@ -192,6 +244,77 @@ export function Step3Personalize({
           values.
         </p>
       </div>
+
+      {needsHeaderMedia && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+          <p className="text-sm font-medium text-white">Header attachment</p>
+          <p className="mt-1 text-xs text-slate-400">
+            This template uses a {headerType} header. Upload the file you want
+            WhatsApp to send with the template.
+          </p>
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex-1">
+              <Input
+                ref={headerFileInputRef}
+                type="file"
+                accept={
+                  headerType === 'image'
+                    ? 'image/*'
+                    : headerType === 'video'
+                      ? 'video/*'
+                      : 'application/pdf'
+                }
+                disabled={uploadingHeader}
+                className="border-slate-700 bg-slate-800 text-white file:text-slate-200"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploadingHeader(true);
+                  try {
+                    await handleHeaderFile(file);
+                  } catch (err) {
+                    const msg =
+                      err instanceof Error ? err.message : 'Upload failed';
+                    toast.error(msg);
+                    onHeaderMediaChange(null);
+                  } finally {
+                    setUploadingHeader(false);
+                    if (headerFileInputRef.current) {
+                      headerFileInputRef.current.value = '';
+                    }
+                  }
+                }}
+              />
+            </div>
+
+            {headerMedia?.url ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                onClick={() => onHeaderMediaChange(null)}
+                disabled={uploadingHeader}
+              >
+                Remove
+              </Button>
+            ) : (
+              <div className="text-xs text-slate-500 sm:text-right">
+                {uploadingHeader ? 'Uploading…' : 'No file selected'}
+              </div>
+            )}
+          </div>
+
+          {headerMedia?.url && (
+            <p className="mt-2 text-xs text-slate-400">
+              Attached:{' '}
+              <span className="text-slate-200">
+                {headerMedia.filename ?? 'file'}
+              </span>
+            </p>
+          )}
+        </div>
+      )}
 
       {placeholders.length === 0 ? (
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 text-center">
@@ -339,6 +462,12 @@ export function Step3Personalize({
         </div>
       )}
 
+      {needsHeaderMedia && !headerMedia?.url && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          Upload a {headerType} header attachment before continuing.
+        </div>
+      )}
+
       <div className="flex items-center justify-between border-t border-slate-800 pt-4">
         <Button
           variant="outline"
@@ -350,7 +479,9 @@ export function Step3Personalize({
         </Button>
         <Button
           onClick={onNext}
-          disabled={unmappedKeys.length > 0}
+          disabled={
+            unmappedKeys.length > 0 || (needsHeaderMedia && !headerMedia?.url)
+          }
           className="bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
         >
           Next

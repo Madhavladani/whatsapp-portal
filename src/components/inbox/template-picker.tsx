@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import type { MessageTemplate } from "@/types";
+import type { MessageTemplate, TemplateHeaderMedia, TemplateHeaderMediaType } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +26,11 @@ import {
 interface TemplatePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelect: (template: MessageTemplate, params: string[]) => void;
+  onSelect: (
+    template: MessageTemplate,
+    params: string[],
+    headerMedia?: TemplateHeaderMedia | null
+  ) => void;
 }
 
 // Meta numbers template placeholders from 1 ({{1}}, {{2}}, …) and the
@@ -55,8 +60,11 @@ export function TemplatePicker({
 }: TemplatePickerProps) {
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
   const [selected, setSelected] = useState<MessageTemplate | null>(null);
   const [params, setParams] = useState<string[]>([]);
+  const [headerFile, setHeaderFile] = useState<File | null>(null);
+  const [uploadingHeader, setUploadingHeader] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -72,10 +80,13 @@ export function TemplatePicker({
       if (!user) {
         if (!cancelled) {
           setTemplates([]);
+          setUserId(null);
           setLoading(false);
         }
         return;
       }
+
+      setUserId(user.id);
 
       // Only Approved templates are sendable through Meta — anything else
       // would 400 on the send route. Hide them rather than letting the
@@ -106,31 +117,78 @@ export function TemplatePicker({
     if (!next) {
       setSelected(null);
       setParams([]);
+      setHeaderFile(null);
     }
     onOpenChange(next);
   }
 
   function pickTemplate(template: MessageTemplate) {
     const vars = extractVariables(template.body_text);
-    if (vars.length === 0) {
-      onSelect(template, []);
-      handleOpenChange(false);
-      return;
-    }
     setSelected(template);
     setParams(new Array(vars.length).fill(""));
+    setHeaderFile(null);
   }
 
-  function confirm() {
+  function safeFilename(name: string) {
+    const normalized = name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+    return normalized.length > 0 ? normalized : `file-${Date.now()}`;
+  }
+
+  async function uploadHeaderMedia(args: {
+    userId: string;
+    headerType: TemplateHeaderMediaType;
+    file: File;
+  }): Promise<TemplateHeaderMedia> {
+    const supabase = createClient();
+    const ext = args.file.name.split(".").pop()?.toLowerCase() || "bin";
+    const path = `${args.userId}/inbox/${Date.now()}-${safeFilename(args.file.name)}.${ext}`;
+
+    const { error } = await supabase.storage.from("template_media").upload(path, args.file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: args.file.type,
+    });
+    if (error) throw new Error(`Upload failed: ${error.message}`);
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("template_media").getPublicUrl(path);
+
+    return { type: args.headerType, url: publicUrl, filename: args.file.name };
+  }
+
+  async function confirm() {
     if (!selected) return;
-    onSelect(selected, params);
-    handleOpenChange(false);
+
+    const headerType = selected.header_type as TemplateHeaderMediaType | undefined;
+    const needsHeaderMedia =
+      headerType === "image" || headerType === "video" || headerType === "document";
+
+    try {
+      setUploadingHeader(true);
+      const headerMedia =
+        needsHeaderMedia && userId && headerType && headerFile
+          ? await uploadHeaderMedia({ userId, headerType, file: headerFile })
+          : null;
+      onSelect(selected, params, headerMedia);
+      handleOpenChange(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to send template";
+      toast.error(msg);
+    } finally {
+      setUploadingHeader(false);
+    }
   }
 
   const variables = selected ? extractVariables(selected.body_text) : [];
+  const headerType = (selected?.header_type as TemplateHeaderMediaType | undefined) ?? undefined;
+  const needsHeaderMedia =
+    headerType === "image" || headerType === "video" || headerType === "document";
   const canConfirm =
     !!selected &&
-    variables.every((_, i) => (params[i] ?? "").trim().length > 0);
+    variables.every((_, i) => (params[i] ?? "").trim().length > 0) &&
+    (!needsHeaderMedia || headerFile !== null) &&
+    !uploadingHeader;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -207,6 +265,33 @@ export function TemplatePicker({
                 </p>
               )}
             </div>
+
+            {needsHeaderMedia && (
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-300">
+                  {headerType === "document" ? "PDF attachment" : "Header media"}
+                </Label>
+                <Input
+                  type="file"
+                  accept={
+                    headerType === "image"
+                      ? "image/*"
+                      : headerType === "video"
+                        ? "video/*"
+                        : "application/pdf"
+                  }
+                  disabled={uploadingHeader}
+                  className="border-slate-700 bg-slate-800 text-white file:text-slate-200"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    setHeaderFile(file);
+                  }}
+                />
+                <p className="text-[11px] text-slate-500">
+                  This template has a {headerType} header. Select a file to include with the message.
+                </p>
+              </div>
+            )}
             {variables.map((v, i) => (
               <div key={v} className="space-y-1">
                 <Label className="text-xs text-slate-300">{`Variable {{${v}}}`}</Label>

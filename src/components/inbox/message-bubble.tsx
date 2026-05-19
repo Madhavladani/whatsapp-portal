@@ -183,12 +183,49 @@ function MessageContent({ message }: { message: Message }) {
       );
 
     case "template":
+      const mediaUrl = message.media_url;
+      const mediaKind = mediaUrl
+        ? mediaUrl.match(/\.pdf(\?|$)/i)
+          ? "document"
+          : mediaUrl.match(/\.(png|jpe?g|webp|gif)(\?|$)/i)
+            ? "image"
+            : mediaUrl.match(/\.(mp4|mov|m4v|3gp)(\?|$)/i)
+              ? "video"
+              : "document"
+        : null;
       return (
         <div>
           <span className="mb-1 inline-flex items-center gap-1 rounded bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-medium text-violet-400">
             <LayoutTemplate className="h-3 w-3" />
             Template
           </span>
+          {mediaUrl && mediaKind === "image" && (
+            <div className="mt-2">
+              <MediaImage url={mediaUrl} alt="Template attachment" />
+            </div>
+          )}
+          {mediaUrl && mediaKind === "video" && (
+            <div className="mt-2">
+              <video
+                src={mediaUrl}
+                controls
+                className="max-h-64 max-w-60 rounded-lg"
+              />
+            </div>
+          )}
+          {mediaUrl && mediaKind === "document" && (
+            <div className="mt-2">
+              <a
+                href={mediaUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 rounded-lg bg-slate-700/50 px-3 py-2 text-sm hover:bg-slate-700"
+              >
+                <FileText className="h-5 w-5 shrink-0 text-slate-400" />
+                <span className="truncate">Attachment</span>
+              </a>
+            </div>
+          )}
           {message.content_text && (
             <p className="mt-1 whitespace-pre-wrap break-words text-sm">
               {message.content_text}

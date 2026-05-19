@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { MessageTemplate } from '@/types';
+import { MessageTemplate, TemplateHeaderMedia } from '@/types';
 import { Step1ChooseTemplate } from '@/components/broadcasts/step1-choose-template';
 import { Step2SelectAudience } from '@/components/broadcasts/step2-select-audience';
 import { Step3Personalize } from '@/components/broadcasts/step3-personalize';
@@ -39,7 +39,13 @@ export default function NewBroadcastPage() {
   const [variables, setVariables] = useState<
     Record<string, { type: 'static' | 'field' | 'custom_field'; value: string }>
   >({});
+  const [headerMedia, setHeaderMedia] = useState<TemplateHeaderMedia | null>(null);
   const [name, setName] = useState('');
+
+  useEffect(() => {
+    // Media attachments must match the selected template's header type.
+    setHeaderMedia(null);
+  }, [template?.id]);
 
   async function handleSend() {
     if (!template) return;
@@ -56,6 +62,7 @@ export default function NewBroadcastPage() {
           excludeTagIds: audience.excludeTagIds,
         },
         variables,
+        headerMedia,
       });
       router.push(`/broadcasts/${broadcastId}`);
     } catch (err) {
@@ -97,6 +104,9 @@ export default function NewBroadcastPage() {
       template_name: template.name,
       template_language: template.language ?? 'en_US',
       template_variables: variables,
+      header_media_url: headerMedia?.url ?? null,
+      header_media_type: headerMedia?.type ?? null,
+      header_media_filename: headerMedia?.filename ?? null,
       audience_filter: {
         type: audience.type,
         tagIds: audience.tagIds,
@@ -198,6 +208,8 @@ export default function NewBroadcastPage() {
               template={template}
               variables={variables}
               onUpdate={setVariables}
+              headerMedia={headerMedia}
+              onHeaderMediaChange={setHeaderMedia}
               onNext={() => setCurrentStep(3)}
               onBack={() => setCurrentStep(1)}
             />

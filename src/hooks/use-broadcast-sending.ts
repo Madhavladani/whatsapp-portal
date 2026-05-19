@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Contact, MessageTemplate } from '@/types';
+import { Contact, MessageTemplate, TemplateHeaderMedia } from '@/types';
 
 export type CustomFieldOperator = 'is' | 'is_not' | 'contains';
 
@@ -38,6 +38,7 @@ interface BroadcastPayload {
   template: MessageTemplate;
   audience: AudienceConfig;
   variables: Record<string, VariableMapping>;
+  headerMedia?: TemplateHeaderMedia | null;
 }
 
 interface UseBroadcastSendingReturn {
@@ -345,6 +346,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
           template_name: payload.template.name,
           template_language: payload.template.language ?? 'en_US',
           template_variables: payload.variables,
+          header_media_url: payload.headerMedia?.url ?? null,
+          header_media_type: payload.headerMedia?.type ?? null,
+          header_media_filename: payload.headerMedia?.filename ?? null,
           audience_filter: {
             type: payload.audience.type,
             tagIds: payload.audience.tagIds,
@@ -450,6 +454,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
               recipients: apiRecipients,
               template_name: payload.template.name,
               template_language: payload.template.language ?? 'en_US',
+              header_media_url: payload.headerMedia?.url ?? null,
+              header_media_type: payload.headerMedia?.type ?? null,
+              header_media_filename: payload.headerMedia?.filename ?? null,
             }),
           });
 

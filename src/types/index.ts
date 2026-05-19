@@ -118,6 +118,14 @@ export interface MessageTemplate {
   created_at: string;
 }
 
+export type TemplateHeaderMediaType = 'image' | 'video' | 'document';
+
+export interface TemplateHeaderMedia {
+  type: TemplateHeaderMediaType;
+  url: string;
+  filename?: string;
+}
+
 export interface Pipeline {
   id: string;
   user_id: string;
@@ -172,6 +180,9 @@ export interface Broadcast {
   template_language: string;
   template_variables?: Record<string, unknown>;
   audience_filter?: Record<string, unknown>;
+  header_media_url?: string;
+  header_media_type?: TemplateHeaderMediaType;
+  header_media_filename?: string;
   scheduled_at?: string;
   status: BroadcastStatus;
   total_recipients: number;
