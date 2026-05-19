@@ -39,6 +39,7 @@ interface BroadcastPayload {
   audience: AudienceConfig;
   variables: Record<string, VariableMapping>;
   headerMedia?: TemplateHeaderMedia | null;
+  extraImages?: TemplateHeaderMedia[];
 }
 
 interface UseBroadcastSendingReturn {
@@ -469,6 +470,27 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
           const resultsByPhone = new Map<string, BroadcastApiResult>();
           for (const r of (data.results ?? []) as BroadcastApiResult[]) {
             resultsByPhone.set(r.phone, r);
+          }
+
+          const mediaToSend = (payload.extraImages ?? []).filter(
+            (m) => m.type === 'image' && !!m.url,
+          );
+          for (const media of mediaToSend) {
+            const mediaRes = await fetch('/api/whatsapp/broadcast-media', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                recipients: apiRecipients.map((r) => ({ phone: r.phone })),
+                media_url: media.url,
+              }),
+            });
+            const mediaPayload = await mediaRes.json().catch(() => ({}));
+            if (!mediaRes.ok) {
+              const reason =
+                (mediaPayload as { error?: string })?.error ??
+                `HTTP ${mediaRes.status}`;
+              throw new Error(`Broadcast media failed: ${reason}`);
+            }
           }
 
           for (const recipient of batch) {

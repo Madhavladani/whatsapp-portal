@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { sendTextMessage, sendTemplateMessage } from '@/lib/whatsapp/meta-api'
+import { sendTextMessage, sendTemplateMessage, sendImageMessage } from '@/lib/whatsapp/meta-api'
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
 import {
   sanitizePhoneForMeta,
@@ -60,6 +60,13 @@ export async function POST(request: Request) {
     if (message_type === 'text' && !content_text) {
       return NextResponse.json(
         { error: 'content_text is required for text messages' },
+        { status: 400 }
+      )
+    }
+
+    if (message_type === 'image' && !media_url) {
+      return NextResponse.json(
+        { error: 'media_url is required for image messages' },
         { status: 400 }
       )
     }
@@ -166,6 +173,16 @@ export async function POST(request: Request) {
         })
         return result.messageId
       }
+      if (message_type === 'image') {
+        const result = await sendImageMessage({
+          phoneNumberId: config.phone_number_id,
+          accessToken,
+          to: phone,
+          link: media_url,
+          caption: content_text || undefined,
+        })
+        return result.messageId
+      }
       const result = await sendTextMessage({
         phoneNumberId: config.phone_number_id,
         accessToken,
@@ -249,10 +266,19 @@ export async function POST(request: Request) {
     }
 
     // Update conversation
+    const lastMessageText =
+      message_type === 'text'
+        ? content_text
+        : message_type === 'image'
+          ? content_text || '[image]'
+          : message_type === 'template'
+            ? `[template] ${template_name}`
+            : `[${message_type}]`
+
     await supabase
       .from('conversations')
       .update({
-        last_message_text: content_text || `[${message_type}]`,
+        last_message_text: lastMessageText,
         last_message_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })

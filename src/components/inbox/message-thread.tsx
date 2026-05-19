@@ -314,7 +314,12 @@ export function MessageThread({
   }, []);
 
   const handleSendTemplate = useCallback(
-    async (template: MessageTemplate, params: string[], headerMedia?: TemplateHeaderMedia | null) => {
+    async (
+      template: MessageTemplate,
+      params: string[],
+      headerMedia?: TemplateHeaderMedia | null,
+      extraImages?: TemplateHeaderMedia[]
+    ) => {
       if (!conversation) return;
 
       const renderedBody = renderTemplateBody(template.body_text, params);
@@ -360,6 +365,41 @@ export function MessageThread({
         }
 
         onUpdateMessage(tempId, { status: "sent" });
+
+        const toSend = (extraImages ?? []).filter((m) => m.url);
+        for (const img of toSend) {
+          const imgTempId = `temp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          onNewMessage({
+            id: imgTempId,
+            conversation_id: conversation.id,
+            sender_type: "agent",
+            content_type: "image",
+            media_url: img.url,
+            content_text: img.filename ?? undefined,
+            status: "sending",
+            created_at: new Date().toISOString(),
+          });
+
+          const imgRes = await fetch("/api/whatsapp/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              conversation_id: conversation.id,
+              message_type: "image",
+              media_url: img.url,
+              content_text: null,
+            }),
+          });
+
+          const imgPayload = await imgRes.json().catch(() => ({}));
+          if (!imgRes.ok) {
+            const reason = imgPayload?.error || `HTTP ${imgRes.status}`;
+            toast.error(`Failed to send image: ${reason}`);
+            onUpdateMessage(imgTempId, { status: "failed" });
+            break;
+          }
+          onUpdateMessage(imgTempId, { status: "sent" });
+        }
       } catch (err) {
         console.error("Failed to send template:", err);
         const reason = err instanceof Error ? err.message : "network error";
@@ -368,6 +408,84 @@ export function MessageThread({
       }
     },
     [conversation, onNewMessage, onUpdateMessage],
+  );
+
+  const uploadImages = useCallback(async (files: File[]) => {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error("Not signed in");
+
+    const safe = (name: string) => name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+
+    const uploads = files.map(async (file) => {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
+      const path = `${user.id}/inbox/${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2)}-${safe(file.name)}.${ext}`;
+
+      const { error } = await supabase.storage.from("template_media").upload(path, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type,
+      });
+      if (error) throw new Error(`Upload failed: ${error.message}`);
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("template_media").getPublicUrl(path);
+      return publicUrl;
+    });
+
+    return Promise.all(uploads);
+  }, []);
+
+  const handleSendImages = useCallback(
+    async (files: File[]) => {
+      if (!conversation) return;
+      if (files.length === 0) return;
+
+      try {
+        const urls = await uploadImages(files);
+        for (const url of urls) {
+          const tempId = `temp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          onNewMessage({
+            id: tempId,
+            conversation_id: conversation.id,
+            sender_type: "agent",
+            content_type: "image",
+            media_url: url,
+            status: "sending",
+            created_at: new Date().toISOString(),
+          });
+
+          const res = await fetch("/api/whatsapp/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              conversation_id: conversation.id,
+              message_type: "image",
+              media_url: url,
+              content_text: null,
+            }),
+          });
+
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const reason = payload?.error || `HTTP ${res.status}`;
+            toast.error(`Failed to send image: ${reason}`);
+            onUpdateMessage(tempId, { status: "failed" });
+            break;
+          }
+          onUpdateMessage(tempId, { status: "sent" });
+        }
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : "network error";
+        toast.error(`Failed to send images: ${reason}`);
+      }
+    },
+    [conversation, onNewMessage, onUpdateMessage, uploadImages]
   );
 
   const handleAssignChange = useCallback(
@@ -580,6 +698,7 @@ export function MessageThread({
         conversationId={conversation.id}
         sessionExpired={sessionInfo.expired}
         onSend={handleSend}
+        onSendImages={handleSendImages}
         onOpenTemplates={handleOpenTemplates}
       />
 

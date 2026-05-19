@@ -40,11 +40,13 @@ export default function NewBroadcastPage() {
     Record<string, { type: 'static' | 'field' | 'custom_field'; value: string }>
   >({});
   const [headerMedia, setHeaderMedia] = useState<TemplateHeaderMedia | null>(null);
+  const [extraImages, setExtraImages] = useState<TemplateHeaderMedia[]>([]);
   const [name, setName] = useState('');
 
   useEffect(() => {
     // Media attachments must match the selected template's header type.
     setHeaderMedia(null);
+    setExtraImages([]);
   }, [template?.id]);
 
   async function handleSend() {
@@ -63,6 +65,7 @@ export default function NewBroadcastPage() {
         },
         variables,
         headerMedia,
+        extraImages,
       });
       router.push(`/broadcasts/${broadcastId}`);
     } catch (err) {
@@ -210,6 +213,8 @@ export default function NewBroadcastPage() {
               onUpdate={setVariables}
               headerMedia={headerMedia}
               onHeaderMediaChange={setHeaderMedia}
+              extraImages={extraImages}
+              onExtraImagesChange={setExtraImages}
               onNext={() => setCurrentStep(3)}
               onBack={() => setCurrentStep(1)}
             />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, KeyboardEvent } from "react";
-import { Send, LayoutTemplate } from "lucide-react";
+import { Send, LayoutTemplate, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -9,6 +9,7 @@ interface MessageComposerProps {
   conversationId: string;
   sessionExpired: boolean;
   onSend: (text: string) => void;
+  onSendImages: (files: File[]) => void;
   onOpenTemplates: () => void;
 }
 
@@ -16,11 +17,13 @@ export function MessageComposer({
   conversationId,
   sessionExpired,
   onSend,
+  onSendImages,
   onOpenTemplates,
 }: MessageComposerProps) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imagesInputRef = useRef<HTMLInputElement>(null);
 
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
@@ -92,6 +95,30 @@ export function MessageComposer({
           title="Send template"
         >
           <LayoutTemplate className="h-4 w-4" />
+        </Button>
+
+        <input
+          ref={imagesInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (files.length === 0) return;
+            onSendImages(files);
+            if (imagesInputRef.current) imagesInputRef.current.value = "";
+          }}
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-9 w-9 shrink-0 p-0 text-slate-400 hover:text-white"
+          onClick={() => imagesInputRef.current?.click()}
+          title="Send images"
+          disabled={sessionExpired}
+        >
+          <ImageIcon className="h-4 w-4" />
         </Button>
 
         <textarea

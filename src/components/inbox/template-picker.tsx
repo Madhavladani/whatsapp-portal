@@ -29,7 +29,8 @@ interface TemplatePickerProps {
   onSelect: (
     template: MessageTemplate,
     params: string[],
-    headerMedia?: TemplateHeaderMedia | null
+    headerMedia?: TemplateHeaderMedia | null,
+    extraImages?: TemplateHeaderMedia[]
   ) => void;
 }
 
@@ -64,6 +65,7 @@ export function TemplatePicker({
   const [selected, setSelected] = useState<MessageTemplate | null>(null);
   const [params, setParams] = useState<string[]>([]);
   const [headerFile, setHeaderFile] = useState<File | null>(null);
+  const [extraImageFiles, setExtraImageFiles] = useState<File[]>([]);
   const [uploadingHeader, setUploadingHeader] = useState(false);
 
   useEffect(() => {
@@ -118,6 +120,7 @@ export function TemplatePicker({
       setSelected(null);
       setParams([]);
       setHeaderFile(null);
+      setExtraImageFiles([]);
     }
     onOpenChange(next);
   }
@@ -127,6 +130,7 @@ export function TemplatePicker({
     setSelected(template);
     setParams(new Array(vars.length).fill(""));
     setHeaderFile(null);
+    setExtraImageFiles([]);
   }
 
   function safeFilename(name: string) {
@@ -157,6 +161,36 @@ export function TemplatePicker({
     return { type: args.headerType, url: publicUrl, filename: args.file.name };
   }
 
+  async function uploadExtraImages(args: {
+    userId: string;
+    files: File[];
+  }): Promise<TemplateHeaderMedia[]> {
+    if (args.files.length === 0) return [];
+    const supabase = createClient();
+
+    const uploads = args.files.map(async (file) => {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
+      const path = `${args.userId}/inbox/${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2)}-${safeFilename(file.name)}.${ext}`;
+
+      const { error } = await supabase.storage.from("template_media").upload(path, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type,
+      });
+      if (error) throw new Error(`Upload failed: ${error.message}`);
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("template_media").getPublicUrl(path);
+
+      return { type: "image" as const, url: publicUrl, filename: file.name };
+    });
+
+    return Promise.all(uploads);
+  }
+
   async function confirm() {
     if (!selected) return;
 
@@ -170,7 +204,11 @@ export function TemplatePicker({
         needsHeaderMedia && userId && headerType && headerFile
           ? await uploadHeaderMedia({ userId, headerType, file: headerFile })
           : null;
-      onSelect(selected, params, headerMedia);
+      const extraImages =
+        userId && extraImageFiles.length > 0
+          ? await uploadExtraImages({ userId, files: extraImageFiles })
+          : [];
+      onSelect(selected, params, headerMedia, extraImages);
       handleOpenChange(false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to send template";
@@ -292,6 +330,28 @@ export function TemplatePicker({
                 </p>
               </div>
             )}
+
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-300">Additional images (optional)</Label>
+              <Input
+                type="file"
+                multiple
+                accept="image/*"
+                disabled={uploadingHeader}
+                className="border-slate-700 bg-slate-800 text-white file:text-slate-200"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  setExtraImageFiles(files);
+                }}
+              />
+              {extraImageFiles.length > 0 ? (
+                <p className="text-[11px] text-slate-500">
+                  {extraImageFiles.length} image{extraImageFiles.length === 1 ? "" : "s"} selected
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-500">No extra images selected</p>
+              )}
+            </div>
             {variables.map((v, i) => (
               <div key={v} className="space-y-1">
                 <Label className="text-xs text-slate-300">{`Variable {{${v}}}`}</Label>

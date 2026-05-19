@@ -34,6 +34,8 @@ interface Step3Props {
   onUpdate: (variables: Record<string, VariableMapping>) => void;
   headerMedia: TemplateHeaderMedia | null;
   onHeaderMediaChange: (media: TemplateHeaderMedia | null) => void;
+  extraImages: TemplateHeaderMedia[];
+  onExtraImagesChange: (media: TemplateHeaderMedia[]) => void;
   onNext: () => void;
   onBack: () => void;
 }
@@ -62,6 +64,8 @@ export function Step3Personalize({
   onUpdate,
   headerMedia,
   onHeaderMediaChange,
+  extraImages,
+  onExtraImagesChange,
   onNext,
   onBack,
 }: Step3Props) {
@@ -74,6 +78,7 @@ export function Step3Personalize({
   const [loadingPreview, setLoadingPreview] = useState(true);
   const [uploadingHeader, setUploadingHeader] = useState(false);
   const headerFileInputRef = useRef<HTMLInputElement | null>(null);
+  const extraImagesInputRef = useRef<HTMLInputElement | null>(null);
 
   const headerType = template.header_type as TemplateHeaderMediaType | undefined;
   const needsHeaderMedia =
@@ -112,6 +117,43 @@ export function Step3Personalize({
       url: publicUrl,
       filename: file.name,
     });
+  }
+
+  async function handleExtraImages(files: File[]) {
+    if (files.length === 0) {
+      onExtraImagesChange([]);
+      return;
+    }
+
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not signed in');
+
+    const uploads = files.map(async (file) => {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'bin';
+      const path = `${user.id}/broadcast/${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2)}-${safeFilename(file.name)}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('template_media')
+        .upload(path, file, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type,
+        });
+      if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('template_media').getPublicUrl(path);
+
+      return { type: 'image' as const, url: publicUrl, filename: file.name };
+    });
+
+    onExtraImagesChange(await Promise.all(uploads));
   }
 
   // Load user's custom fields + a representative contact for the
@@ -315,6 +357,45 @@ export function Step3Personalize({
           )}
         </div>
       )}
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+        <p className="text-sm font-medium text-white">
+          Additional images (optional)
+        </p>
+        <p className="mt-1 text-xs text-slate-400">
+          Send extra images after the template message.
+        </p>
+
+        <div className="mt-3">
+          <Input
+            ref={extraImagesInputRef}
+            type="file"
+            multiple
+            accept="image/*"
+            disabled={uploadingHeader}
+            className="border-slate-700 bg-slate-800 text-white file:text-slate-200"
+            onChange={async (e) => {
+              const files = Array.from(e.target.files ?? []);
+              try {
+                await handleExtraImages(files);
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : 'Upload failed';
+                toast.error(msg);
+                onExtraImagesChange([]);
+              } finally {
+                if (extraImagesInputRef.current) {
+                  extraImagesInputRef.current.value = '';
+                }
+              }
+            }}
+          />
+          <p className="mt-2 text-xs text-slate-500">
+            {extraImages.length > 0
+              ? `${extraImages.length} image${extraImages.length === 1 ? '' : 's'} attached`
+              : 'No extra images selected'}
+          </p>
+        </div>
+      </div>
 
       {placeholders.length === 0 ? (
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 text-center">

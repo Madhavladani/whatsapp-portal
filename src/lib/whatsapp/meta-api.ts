@@ -106,6 +106,44 @@ export async function sendTextMessage(
   return { messageId: data.messages[0].id }
 }
 
+export interface SendImageMessageArgs {
+  phoneNumberId: string
+  accessToken: string
+  to: string
+  link: string
+  caption?: string
+}
+
+/**
+ * Send a WhatsApp image message by URL.
+ * Only works inside the 24-hour customer service window unless using templates.
+ */
+export async function sendImageMessage(
+  args: SendImageMessageArgs
+): Promise<MetaSendResult> {
+  const { phoneNumberId, accessToken, to, link, caption } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/messages`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'image',
+      image: caption ? { link, caption } : { link },
+    }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = await response.json()
+  return { messageId: data.messages[0].id }
+}
+
 export interface SendTemplateMessageArgs {
   phoneNumberId: string
   accessToken: string
